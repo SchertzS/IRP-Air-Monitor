@@ -587,5 +587,5 @@ This can save ~100mA between reads
 
 # Diagrams and Photos
 Diagrams and Photos
-![System Diagram](images/System_Diagram.jpg)
-![Raspberry Pi Zero 2W Diagram](images/RaspberryPiZero2W_Sensor_diamgram.jpg)
+![System Diagram](images/System_Diagram.png)
+![Raspberry Pi Zero 2W Diagram](images/RaspberryPiZero2W_Sensor_diamgram.png)
