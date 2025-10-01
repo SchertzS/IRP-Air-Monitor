@@ -1,21 +1,21 @@
 # Table of Instructions
-- [Raspberry Pi Device Setup](#raspberry-pi-device-setup)
-  - [1. Flash Operating System](#1-flash-operating-system)
-  - [2. Configure Interfaces](#2-configure-interfaces)
-  - [3. Update the Device](#3-update-the-device)
-  - [4. Install WiringPi](#4-install-wiringpi)
-  - [5. Setup Python Virtual Environment](#5-setup-python-virtual-environment)
-  - [6. Setup Cron Job](#6-setup-cron-job)
-  - [7. Configure Sudden Power Loss Handling](#7-configure-sudden-power-loss-handling)
-  - [8. Edit `config.txt`](#8-edit-configtxt)
-  - [9. Update Script Paths](#9-update-script-paths)
-  - [10. Install WiringPi](#10-install-wiringpi)
-  - [11. RTC Setup Steps (DS3231 on Raspberry Pi)](#11-rtc-setup-steps-ds3231-on-raspberry-pi)
-  - [12. Wifi hotspot](#12-wifi-hotspot)
-  - [13. Optional Power Savers](#13-optional-power-savers)
-  - [Final Checks](#final-checks)
-
+- [1. Flash Operating System](#1-flash-operating-system)
+- [2. Configure Interfaces](#2-configure-interfaces)
+- [3. Update the Device](#3-update-the-device)
+- [4. Install WiringPi](#4-install-wiringpi)
+- [5. Setup Python Virtual Environment](#5-setup-python-virtual-environment)
+- [6. Setup Cron Job](#6-setup-cron-job)
+- [7. Configure Sudden Power Loss Handling](#7-configure-sudden-power-loss-handling)
+- [8. Edit `config.txt`](#8-edit-configtxt)
+- [9. Update Script Paths](#9-update-script-paths)
+- [10. Install WiringPi](#10-install-wiringpi)
+- [11. RTC Setup Steps (DS3231 on Raspberry Pi)](#11-rtc-setup-steps-ds3231-on-raspberry-pi)
+- [12. Wifi hotspot](#12-wifi-hotspot)
+- [13. Optional Power Savers](#13-optional-power-savers)
+- [Final Checks](#final-checks)
+- [Diagrams and Photos](#diagrams-and-photos)
 ---
+
 # Raspberry Pi Device Setup
 
 ## 1. Flash Operating System
@@ -583,11 +583,9 @@ This can save ~100mA between reads
 ---
 
 
-### **Cron or Systemd: Time-Windowed Boot**
+---
 
-TODO: a **shutdown after reading** with:
-- **RTC module** or
-- **External microcontroller**
-
-...to **power the Pi back on** when needed.
-
+# Diagrams and Photos
+Diagrams and Photos
+![System Diagram](images/System_Diagram.jpg)
+![Raspberry Pi Zero 2W Diagram](images/RaspberryPiZero2W_Sensor_diamgram.jpg)
