@@ -592,3 +592,9 @@ TODO: a **shutdown after reading** with:
 
 ...to **power the Pi back on** when needed.
 
+---
+
+# Appendix
+Diagrams and Photos
+![System Diagram](images/System_Diagram.jpg)
+![Raspberry Pi Zero 2W Diagram](images/RaspberryPiZero2W_Sensor_diamgram.jpg)
