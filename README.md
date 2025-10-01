@@ -13,7 +13,7 @@
 - [12. Wifi hotspot](#12-wifi-hotspot)
 - [13. Optional Power Savers](#13-optional-power-savers)
 - [Final Checks](#final-checks)
-
+- [Diagrams and Photos](#diagrams-and-photos)
 ---
 
 # Raspberry Pi Device Setup
@@ -593,7 +593,7 @@ TODO: a **shutdown after reading** with:
 
 ---
 
-# Appendix
+# Diagrams and Photos
 Diagrams and Photos
 ![System Diagram](images/System_Diagram.jpg)
 ![Raspberry Pi Zero 2W Diagram](images/RaspberryPiZero2W_Sensor_diamgram.jpg)
