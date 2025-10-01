@@ -1,5 +1,6 @@
 """
 Script to read from a PM2.5 sensor via UART on a Raspberry Pi Zero W.
+
 """
 
 import os
