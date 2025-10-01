@@ -3,19 +3,19 @@ Script to read from a PM2.5 sensor via UART on a Raspberry Pi Zero W.
 
 """
 
-import os
 import csv
 import json
+import os
 import time
-from adafruit_pm25.uart import PM25_UART
-import serial
-import RPi.GPIO as GPIO
 
+import RPi.GPIO as GPIO
+import serial
+from adafruit_pm25.uart import PM25_UART
 
 # ==== CONFIG ====
 SET_PIN = 17  # GPIO pin to control sensor SET
-BUFFER_PATH = "/home/raspberryzero-two/pm25_buffer.json"
-CSV_PATH = "/home/raspberryzero-two/air_quality_log.csv"
+BUFFER_PATH = "/home/username/pm25_buffer.json"
+CSV_PATH = "/home/username/air_quality_log.csv"
 WRITE_THRESHOLD = 6  # Write to CSV after 6 readings
 LED_PATH = "/sys/class/leds/ACT/brightness"
 
