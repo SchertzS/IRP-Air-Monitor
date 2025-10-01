@@ -1,4 +1,4 @@
-# Table of Contents
+# Table of Instructions
 - [Raspberry Pi Device Setup](#raspberry-pi-device-setup)
   - [1. Flash Operating System](#1-flash-operating-system)
   - [2. Configure Interfaces](#2-configure-interfaces)
