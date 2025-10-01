@@ -583,14 +583,6 @@ This can save ~100mA between reads
 ---
 
 
-### **Cron or Systemd: Time-Windowed Boot**
-
-TODO: a **shutdown after reading** with:
-- **RTC module** or
-- **External microcontroller**
-
-...to **power the Pi back on** when needed.
-
 ---
 
 # Diagrams and Photos
