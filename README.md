@@ -1,3 +1,8 @@
+## Iteration consideration(s)
+
+1. When using a DHT11 sensor make sure enough delay is given between readings (e.g. 2 seconds) to avoid errors.
+   Otherwise, problems that were experienced: timing/power/noise, reading too fast, or borderline wiring.
+
 # Table of Instructions
 - [1. Flash Operating System](#1-flash-operating-system)
 - [2. Configure Interfaces](#2-configure-interfaces)
