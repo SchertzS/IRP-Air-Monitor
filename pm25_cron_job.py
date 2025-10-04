@@ -57,9 +57,9 @@ from adafruit_pm25.uart import PM25_UART
 
 # ==== CONFIG ====
 SET_PIN = 17  # GPIO pin to control sensor SET
-BUFFER_PATH = "/home/raspberryzero-two/pm25_buffer.json"
-CSV_PATH = "/home/raspberryzero-two/air_quality_log.csv"
-CSV_PATH_FAILED_READS = "/home/raspberryzero-two/failed_reads.csv"
+BUFFER_PATH = "/home/username/pm25_buffer.json"
+CSV_PATH = "/home/username/air_quality_log.csv"
+CSV_PATH_FAILED_READS = "/home/username/failed_reads.csv"
 WRITE_THRESHOLD = 6  # Write to CSV after 6 readings
 LED_PATH = "/sys/class/leds/ACT/brightness"
 
