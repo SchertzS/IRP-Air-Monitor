@@ -16,8 +16,9 @@
 - [9. Update Script Paths](#9-update-script-paths)
 - [10. Install WiringPi](#10-install-wiringpi)
 - [11. RTC Setup Steps (DS3231 on Raspberry Pi)](#11-rtc-setup-steps-ds3231-on-raspberry-pi)
-- [12. Wifi hotspot](#12-wifi-hotspot)
-- [13. Optional Power Savers](#13-optional-power-savers)
+- [12. DHT11 Sensor Setup](#13-dht11-sensor-setup)
+- [13. Wifi hotspot](#12-wifi-hotspot)
+- [14. Optional Power Savers](#13-optional-power-savers)
 - [Final Checks](#final-checks)
 - [Diagrams and Photos](#diagrams-and-photos)
 ---
@@ -453,10 +454,33 @@ sudo systemctl status rc-local
 
 </details>
 
+---
+
+# 13. DHT11 Sensor Setup
+
+<details>
+    <summary> DHT11 Sensor Setup</summary>
+
+### Step 1: Wiring the DHT11 Sensor
+
+| DHT11 Pin | Connect To (Pi GPIO) | Physical Pin |
+|-----------|----------------------|--------------|
+| VCC       | 3.3V or 5V           | 1 or 2       |
+| GND       | Ground               | 6 or 9       |
+| DATA      | GPIO 4               | 7            |
+
+### Step 2: Install DHT11 Python Library
+
+```bash
+pip install Adafruit_DHT
+```
+
+</details>
+
 
 ---
 
-# 13. Optional Power Savers
+# 14. Optional Power Savers
 
 ---
 
