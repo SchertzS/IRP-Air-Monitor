@@ -47,13 +47,23 @@ Usage:
 import csv
 import json
 import os
+import socket
 import time
+from datetime import datetime, timezone
 
 import RPi.GPIO as GPIO
 import adafruit_dht
 import board
+import paho.mqtt.client as mqtt
 import serial
 from adafruit_pm25.uart import PM25_UART
+
+# ==== MQTT CONFIG (point to Pi 5 / HA broker) ====
+MQTT_HOST = os.getenv("MQTT_HOST", "pi5.local")  # or IP
+MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+DEVICE_ID = os.getenv("DEVICE_ID", "aqnode-zero2w-01")
+BASE_TOPIC = f"aq/{DEVICE_ID}"  # e.g., aq/aqnode-zero2w-01
+
 
 # ==== CONFIG ====
 SET_PIN = 17  # GPIO pin to control sensor SET
@@ -62,6 +72,10 @@ CSV_PATH = "/home/username/air_quality_log.csv"
 CSV_PATH_FAILED_READS = "/home/username/failed_reads.csv"
 WRITE_THRESHOLD = 6  # Write to CSV after 6 readings
 LED_PATH = "/sys/class/leds/ACT/brightness"
+BROKER_HOST = "pi5.local"  # or static IP
+BROKER_PORT = 1883
+DEVICE_ID = "aqnode-zero2w-01"
+BASE_TOPIC = f"aq/{DEVICE_ID}"
 
 #  === LOGGING INITIALIZATION ====
 print("\n\n################################") # log separator
@@ -76,6 +90,36 @@ GPIO.setmode(GPIO.BCM)
 GPIO.setwarnings(False)
 GPIO.setup(SET_PIN, GPIO.OUT)
 dht_device = adafruit_dht.DHT11(board.D4, use_pulseio=False)
+
+client = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
+client.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
+
+
+def connect():
+    # Retry connect w/ backoff
+    while True:
+        try:
+            client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
+            client.loop_start()
+            client.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
+            break
+        except Exception:
+            time.sleep(5)
+
+
+def publish_reading(pm25, pm10, pm100, t_c=None, rh=None):
+    ts = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "timestamp": ts,
+        "pm25": pm25, "pm10": pm10, "pm100": pm100,
+        "temperature_c": t_c, "humidity_pct": rh,
+        "host": socket.gethostname()
+    }
+    # 1) Running timeseries
+    client.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False)
+    # 2) A retained "latest" snapshot
+    client.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True)
+
 
 # ==== UART SETUP ====
 try:
@@ -107,7 +151,6 @@ def wake_sensor():
     print("\nSensor waking up...")
     print(".\n.\n.\n.\n.")  # logging
     time.sleep(5)  # sensor warm up: @5 seconds
-
 
 def sleep_sensor():
     """
@@ -245,6 +288,95 @@ def write_to_csv(data_list):
     # Logging
     print(f"Wrote {len(data_list)} readings to {CSV_PATH}")
 
+
+# ==== MQTT PUBLISHING ====
+def mqtt_client():
+    """
+    Initialize and return an MQTT client with Last Will set.
+    :return:
+    """
+    c = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
+    # Last Will tells HA that we went offline if the process dies
+    c.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
+    return c
+
+
+def mqtt_connect(c: mqtt.Client):
+    """
+    Connect to the MQTT broker with retries and exponential backoff.
+    :param c: mqtt.Client
+    :return:
+    """
+    backoff = 2
+    while True:
+        try:
+            c.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
+            c.loop_start()
+            # we’re online now
+            c.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
+            print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
+            return c
+        except Exception as e:
+            print(f"[MQTT] connect failed: {e} (retrying in {backoff}s)")
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
+
+
+def mqtt_publish_reading(c: mqtt.Client, payload: dict):
+    """
+    Publish the sensor reading to both a streaming topic and a retained snapshot topic.
+    :param c: mqtt.Client
+    :param payload: dict with sensor data
+    :return:
+    """
+    # 1) streaming topic (not retained)
+    c.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False)
+    # 2) snapshot topic (retained) so HA always has the latest
+    c.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True)
+
+
+def mqtt_publish_discovery(c: mqtt.Client):
+    """
+    Publish HA discovery configs so entities show up automatically.
+    We bind them to the retained 'latest' snapshot.
+    :param c: mqtt.Client
+    :return: none
+    """
+    disc_base = f"homeassistant/sensor/{DEVICE_ID}"
+    device = {
+        "identifiers": [DEVICE_ID],
+        "name": "Air Quality Node",
+        "model": "Pi Zero 2 W",
+        "manufacturer": "Custom",
+    }
+
+    sensors = [
+        # (key, name, unit, value_json_field)
+        ("pm25", "PM2.5", "µg/m³", "pm25_standard"),
+        ("pm10", "PM10", "µg/m³", "pm10_standard"),
+        ("pm100", "PM100", "µg/m³", "pm100_standard"),
+        ("temp", "Ambient Temp", "°F", "temperature_f"),
+        ("humid", "Humidity", "%", "humidity_percent"),
+        ("cput", "CPU Temp", "°C", "cpu_temp_c"),
+    ]
+
+    for key, name, unit, field in sensors:
+        cfg_topic = f"{disc_base}/{key}/config"
+        cfg = {
+            "name": name,
+            "state_topic": f"{BASE_TOPIC}/latest",
+            "unit_of_measurement": unit,
+            "value_template": f"{{{{ value_json.{field} }}}}",
+            "unique_id": f"{DEVICE_ID}_{key}",
+            "device": device,
+            "availability_topic": f"{BASE_TOPIC}/status",
+            "payload_available": "online",
+            "payload_not_available": "offline",
+        }
+        c.publish(cfg_topic, json.dumps(cfg), qos=1, retain=True)
+    print("[MQTT] Published HA discovery")
+
+
 """ ==== MAIN ==== """
 try:
     wake_sensor()
@@ -252,10 +384,30 @@ try:
     sleep_sensor()
 
     if not reading:
-        print("No reading. Skipping write.")
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        print(f"No reading. Skipping write.\nTime: {timestamp}")
+        with open(CSV_PATH_FAILED_READS, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerows(timestamp)
+        print(f"Wrote failed reading timestamp ({timestamp}) to {CSV_PATH_FAILED_READS}")
+        os.sync()
         exit()
 
     print(f"Sensor reading: {reading}")
+
+    # ==== MQTT PUBLISH ====
+    client = mqtt_connect(mqtt_client())
+    payload = {
+        "timestamp": reading[0],
+        "cpu_temp_c": reading[1],  # you logged °C for CPU (correct from cpu_temp_c)
+        "pm10_standard": reading[2],
+        "pm25_standard": reading[3],
+        "pm100_standard": reading[4],
+        "temperature_f": reading[5],
+        "humidity_percent": reading[6],
+        "host": socket.gethostname(),
+    }
+    mqtt_publish_reading(client, payload)
 
     buffer = load_buffer()
     buffer.append(reading)
