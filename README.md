@@ -240,6 +240,8 @@ In `pm25_cron_job.py`, ensure paths match username:
 <details>
     <summary>Install WiringPi (power button)</summary>
 
+The purpose of installing WiringPi is to enable GPIO pin control and management on the Raspberry Pi.
+
 ### **Download WiringPi**
 ```bash
 cd ~
@@ -290,6 +292,11 @@ If the button does not change state, **double-check the wiring**:
 
 <details>
     <summary> RTC SETUP </summary>
+
+The purpose of installing a Real-Time Clock (RTC) module is to maintain accurate timekeeping on the Raspberry Pi,
+especially
+when it is powered off or disconnected from the internet. DS3231 was chosen since it's a popular RTC module known for
+its accuracy and reliability.
 
 ### **Wiring the RTC Module**
 
@@ -467,6 +474,10 @@ sudo systemctl status rc-local
 <details>
     <summary> Wifi Hotspot</summary>
 
+The purpose of installing a wifi hotspot is to allow the device to be accessed remotely when no other network is
+available.
+This is useful for field deployments where you may want to connect to the device directly from a client.
+
 ### Step 1: Find wifi device
 `nmcli device`
 
@@ -484,6 +495,10 @@ sudo systemctl status rc-local
 ---
 
 # 13. DHT11 Sensor Setup
+
+The purpose of installing a DHT11 sensor is to measure temperature and humidity alongside the PM2.5 readings.
+This provides additional context for air quality data, as temperature and humidity can influence particulate matter
+levels.
 
 <details>
     <summary> DHT11 Sensor Setup</summary>
@@ -514,6 +529,8 @@ pip install Adafruit_DHT
 <details>
     <summary>Option Power Savers</summary>
 
+The purpose of these power-saving techniques is to extend battery
+life and reduce energy consumption when the Raspberry Pi is deployed in the field.
 
 ### **Disable HDMI (saves ~25–30mA)**
 
