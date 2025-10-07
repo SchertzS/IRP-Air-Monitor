@@ -330,6 +330,32 @@ try:
 
     print(f"Sensor reading: {reading}")
 
+    # Buffer → CSV batch
+    buffer = load_buffer()
+    buffer.append(reading)
+    blink_builtin_led(2)
+    print("\nBUFFER:")
+    for i, value in enumerate(buffer):
+        print(f"{i}. {value}")
+
+    if len(buffer) >= WRITE_THRESHOLD:
+        write_to_csv(buffer)
+        blink_builtin_led(3)
+        buffer = []
+
+    print("\nSaving buffer...")
+    save_buffer(buffer)
+
+    # BUFFER LOGS
+    if buffer:
+        if len(buffer) < WRITE_THRESHOLD:
+            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
+        elif len(buffer) == WRITE_THRESHOLD - 1:
+            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
+            print("\nPreparing write data to .csv next read...")
+    else:
+        print("BUFFER is empty")
+
     # MQTT: connect → publish discovery (once) → publish reading
     client = mqtt_connect(mqtt_client())
     mqtt_publish_discovery(client)  # call this so HA auto-creates entities
@@ -346,30 +372,6 @@ try:
     }
     mqtt_publish_reading(client, payload)
 
-    # Buffer → CSV batch
-    buffer = load_buffer()
-    buffer.append(reading)
-    blink_builtin_led(2)
-    print("\nBUFFER:")
-    for i, value in enumerate(buffer):
-        print(f"{i}. {value}")
-
-    if len(buffer) >= WRITE_THRESHOLD:
-        write_to_csv(buffer)
-        blink_builtin_led(3)
-        buffer = []
-
-    save_buffer(buffer)
-
-    # Debug
-    if buffer:
-        if len(buffer) < WRITE_THRESHOLD:
-            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
-        elif len(buffer) == WRITE_THRESHOLD - 1:
-            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
-            print("\nPreparing write data to .csv next read...")
-    else:
-        print("BUFFER is empty")
 
 except Exception as e:
     print(f"[ERROR] Unexpected error occurred: {e}")
@@ -377,4 +379,6 @@ except Exception as e:
 """
 TODO
 - add most recent timestamp reading as an entity in HA
+                        - or -
+- add overall logs as an entity in HA
 """
