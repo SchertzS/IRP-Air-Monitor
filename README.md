@@ -23,6 +23,33 @@
 - [Diagrams and Photos](#diagrams-and-photos)
 ---
 
+```
+
+serial connect 
+     |
+     |
+     V
+wake_sensor()
+     |
+     |
+     V
+read_sensor() 
+     |
+     |
+     V                                        if buffer !full
+sleep_sensor() ---> load_buffer() ------------------------------->------->  save_buffer() 
+                                     |                          |                            |
+                      if buffer full |                          |                            |  
+                                     -------> write_to_csv()----^                            |
+                                                                                             | 
+                                                                                             | 
+      ----------------------------------------------------------------------------------- < -
+     |
+     |
+     V
+mqtt_connect() ---> mqtt_publish_discovery ---> mqtt_publish_reading
+     
+```
 # Raspberry Pi Device Setup
 
 ## 1. Flash Operating System
