@@ -20,28 +20,13 @@
 
 Script to read from a PM2.5 sensor via UART on a Raspberry Pi Zero W.
 Includes buffer management to minimize SD card writes, and logs data to a CSV file.
-Also reads temperature and humidity from a DHT11 sensor.
+Also reads temperature and humidity from a DHT11 sensor, and publishes to MQTT
+with Home Assistant auto-discovery.
+
 Author: StephenS
-Date: 2024-06-15
-Version: 0.1.0
-
-Dependencies:
-- adafruit-circuitpython-pm25
-- adafruit-circuitpython-dht
-- pyserial
-- RPi.GPIO
-- board
-- adafruit-blinka
-- Python 3.x
-
-Usage:
-- Ensure the PM2.5 sensor is connected to the UART pins.
-- Ensure the DHT11 sensor is connected to GPIO pin 4 (D4).
-- Run this script as a cron job at desired intervals (e.g., every 10 minutes).
-- The script will manage a buffer of readings and write to CSV after reaching a threshold.
-- The built-in LED will blink to indicate data reading and writing status.
-
-
+Start Date: 2024-06-15
+Latest Date: 2025-10-07
+Version: 0.2.0
 """
 
 import csv
@@ -49,7 +34,6 @@ import json
 import os
 import socket
 import time
-from datetime import datetime, timezone
 
 import RPi.GPIO as GPIO
 import adafruit_dht
@@ -59,26 +43,21 @@ import serial
 from adafruit_pm25.uart import PM25_UART
 
 # ==== MQTT CONFIG (point to Pi 5 / HA broker) ====
-MQTT_HOST = os.getenv("MQTT_HOST", "pi5.local")  # or IP
+MQTT_HOST = os.getenv("MQTT_HOST", "pi5.local")  # or static IP
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-DEVICE_ID = os.getenv("DEVICE_ID", "aqnode-zero2w-01")
+DEVICE_ID = os.getenv("DEVICE_ID", "device_id")  # e.g., aqnode-zero2w-01
 BASE_TOPIC = f"aq/{DEVICE_ID}"  # e.g., aq/aqnode-zero2w-01
 
-
-# ==== CONFIG ====
+# ==== PATHS / IO CONFIG ====
 SET_PIN = 17  # GPIO pin to control sensor SET
 BUFFER_PATH = "/home/username/pm25_buffer.json"
 CSV_PATH = "/home/username/air_quality_log.csv"
 CSV_PATH_FAILED_READS = "/home/username/failed_reads.csv"
 WRITE_THRESHOLD = 6  # Write to CSV after 6 readings
 LED_PATH = "/sys/class/leds/ACT/brightness"
-BROKER_HOST = "pi5.local"  # or static IP
-BROKER_PORT = 1883
-DEVICE_ID = "aqnode-zero2w-01"
-BASE_TOPIC = f"aq/{DEVICE_ID}"
 
 #  === LOGGING INITIALIZATION ====
-print("\n\n################################") # log separator
+print("\n\n################################")
 print(f"Time: {time.asctime()}")
 print(f"\nInitialize configuration: ")
 print(f"BUFFER PATH: {BUFFER_PATH}")
@@ -91,71 +70,42 @@ GPIO.setwarnings(False)
 GPIO.setup(SET_PIN, GPIO.OUT)
 dht_device = adafruit_dht.DHT11(board.D4, use_pulseio=False)
 
-client = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
-client.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
-
-
-def connect():
-    # Retry connect w/ backoff
-    while True:
-        try:
-            client.connect(BROKER_HOST, BROKER_PORT, keepalive=60)
-            client.loop_start()
-            client.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
-            break
-        except Exception:
-            time.sleep(5)
-
-
-def publish_reading(pm25, pm10, pm100, t_c=None, rh=None):
-    ts = datetime.now(timezone.utc).isoformat()
-    payload = {
-        "timestamp": ts,
-        "pm25": pm25, "pm10": pm10, "pm100": pm100,
-        "temperature_c": t_c, "humidity_pct": rh,
-        "host": socket.gethostname()
-    }
-    # 1) Running timeseries
-    client.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False)
-    # 2) A retained "latest" snapshot
-    client.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True)
-
-
 # ==== UART SETUP ====
 try:
-    # uart = serial.Serial("/dev/ttyAMA0", baudrate=9600, timeout=0.25)
-    # uart = serial.Serial("/dev/ttyS0", baudrate=9600, timeout=0.25)
+    # Pick the one that matches your setup; serial0 usually points to the active UART
     uart = serial.Serial("/dev/serial0", baudrate=9600, timeout=0.25)
     pm25 = PM25_UART(uart, None)
-    # dhtDevice = adafruit_dht.DHT11(board.D4)
-    # DEBUG statement to check if sensor is working
     print(f"UART: {uart} | PM25: {pm25}")
     print(f"DHT: {dht_device}")
 except serial.SerialException as e:
     print(f"[ERROR] Failed to open UART: {e}")
-    exit(1)
-
+    raise SystemExit(1)
 
 # ==== TEMPERATURE MONITORING ====
 def cpu_temp_c():
+    """
+    Reads the CPU temperature from the system file.
+    :return: CPU temperature in Celsius.
+    """
     with open("/sys/class/thermal/thermal_zone0/temp") as f:
         return int(f.read().strip()) / 1000.0
 
-# ==== SENSOR SETUP / POWER CONTROL ====
+
+# ==== SENSOR POWER CONTROL ====
 def wake_sensor():
     """
-    Wake the PM2.5 sensor by setting the SET_PIN high and allowing time for warm-up.
-    :return: none
+    Wakes up the PM2.5 sensor by setting the SET_PIN high.
+    :return: None
     """
     GPIO.output(SET_PIN, GPIO.HIGH)
     print("\nSensor waking up...")
-    print(".\n.\n.\n.\n.")  # logging
-    time.sleep(5)  # sensor warm up: @5 seconds
+    print(".\n.\n.\n.\n.")
+    time.sleep(5)  # warm-up
 
 def sleep_sensor():
     """
-    Put the PM2.5 sensor to sleep by setting the SET_PIN low.
-    :return: none
+    Puts the PM2.5 sensor to sleep by setting the SET_PIN low.
+    :return: None
     """
     GPIO.output(SET_PIN, GPIO.LOW)
     print("Sensor put to sleep")
@@ -163,10 +113,24 @@ def sleep_sensor():
 # ==== LED CONTROL ====
 def blink_builtin_led(times=1, duration=1):
     """
-    Blink the built-in LED a specified number of times for an on-site quick visual
-    data confirmation.
-    :param times: Number of blinks
-    :param duration: Length of each blink in seconds
+    Blink the built-in LED a specified number of times with a given duration.
+    :param times: 1
+    :param duration: 1 second
+    :return: None
+    """
+    for _ in range(times):
+        with open(LED_PATH, "w") as led:
+            led.write("1")
+        time.sleep(duration)
+        with open(LED_PATH, "w") as led:
+            led.write("0")
+        time.sleep(duration)
+
+def flash_builtin_led(times=4, duration=0.1):
+    """
+    Flash the built-in LED quickly to indicate activity.
+    :param times: 4
+    :param duration: 0.1 second
     :return: None
     """
     for _ in range(times):
@@ -178,80 +142,72 @@ def blink_builtin_led(times=1, duration=1):
         time.sleep(duration)
 
 
-def flash_builtin_led(times=4, duration=0.1):
-    """
-    Flash the built-in LED quickly a specified number of times for an on-site quick visual
-    :param times: 4
-    :param duration: 0.1s
-    :return:
-    """
-    for _ in range(times):
-        with open(LED_PATH, "w") as led:
-            led.write("1")
-        time.sleep(duration)
-        with open(LED_PATH, "w") as led:
-            led.write("0")
-        time.sleep(duration)
-
-
-# ==== SENSOR READING & DATA HANDLING ====
+# ==== SENSOR READ ====
 def read_sensor(retries=10, delay=2):
     """
-    Attempt to read data from the PM2.5 and DHT11 sensors with retries and delay.
-    :param retries: 10
-    :param delay: 2 seconds
-    :return: List of readings [timestamp, cpu_temp, pm1.0, pm2.5, pm10.0, temperature_f, humidity] or None if failed
+    Attempts to read data from the PM2.5 sensor and DHT11 sensor with retries.
+    Data example: [timestamp, cpu_temp_c, pm10, pm25, pm100, ambient_temp_f, humidity]
+    Output example: ['2024-06-15 12:34:56', 45.2, 12, 8, 15, 72.5, 55]
+
+    total sleep time = (delay * 2) + (delay * 2) = 8 seconds per attempt
+    10 attempts = 80 seconds max
+
+
+    :param retries: Number of read attempts
+    :param delay: Delay between attempts in seconds
+    :return: List of readings or None if all attempts fail
     """
     print("read_sensor()")
     for i in range(retries):
         try:
-            time.sleep(delay)  # sensor warm up: @2 seconds
-            print(".\n.")  # "." represents delay in seconds for logging
-            time.sleep(delay)  # sensor warm up: @2 seconds
-            print(".\n.")  # logging
+            # Initial delay before read (4 second delay total)
+            time.sleep(delay);
+            print(".\n.")
+            time.sleep(delay);
+            print(".\n.")
 
-            # ==== READ DATA ====
             print("Attempting to read data...")
-            flash_builtin_led()  # LED flashes for data read
+            flash_builtin_led()
             data = pm25.read()
-            temperature_c = dht_device.temperature
-            temperature_f = temperature_c * (9 / 5) + 32
-            humidity = dht_device.humidity
-            cpu_temp = cpu_temp_c()
+
+            # DHT can return None occasionally; guard it
+            t_c = dht_device.temperature
+            h = dht_device.humidity
+            ambient_temp_f = (t_c * 9 / 5 + 32) if (t_c is not None) else None
+            humidity = h if (h is not None) else None
+
+            cpu_t = cpu_temp_c()
             print(f"Successfully read sensor on attempt: {i + 1}/{retries}")
 
-            time.sleep(delay)  # sensor pause: @2 seconds
-            print(".\n.")  # logging
-            time.sleep(delay)  # sensor pause: @2 seconds
-            print(".\n.")  # logging
+            # Second delay after read (4 second delay total)
+            time.sleep(delay);
+            print(".\n.")
+            time.sleep(delay);
+            print(".\n.")
 
-            # some DHT return None if timing was off
             timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-            return [timestamp,
-                    cpu_temp,
-                    data["pm10 standard"],
-                    data["pm25 standard"],
-                    data["pm100 standard"],
-                    temperature_f,
-                    humidity]
+            return [
+                timestamp,
+                cpu_t,
+                data["pm10 standard"],
+                data["pm25 standard"],
+                data["pm100 standard"],
+                ambient_temp_f,
+                humidity,
+            ]
         except RuntimeError as e:
-            # logging
             print(f"Sensor read failed (attempt {i + 1}/{retries}): {e}")
-            print(f"Retrying...")
-            time.sleep(delay)
-            print(".\n.")  # logging
+            print("Retrying...")
+            time.sleep(delay);
+            print(".\n.")
     return None
 
-#==== BUFFER MANAGEMENT (short term storage) ====
-"""
-Buffer management using a JSON file to store readings temporarily before writing to CSV.
-The purpose is to minimize frequent writes to the SD card, extending its lifespan.
 
-"""
+# ==== BUFFER MANAGEMENT ====
 def load_buffer():
     """
-    Load the buffer from a JSON file. If the file doesn't exist or is corrupted, return an empty list.
-    :return: List of buffered readings
+    Loads the buffer from a JSON file if it exists; otherwise, returns an empty list.
+    :return: Either a list of buffered readings or an empty list.
     """
     if os.path.exists(BUFFER_PATH):
         try:
@@ -264,55 +220,49 @@ def load_buffer():
 
 def save_buffer(buffer):
     """
-    Save the current buffer to a JSON file.
-    :param buffer: List of readings to save
-    :return: none
+    Saves the current buffer to a JSON file.
+    :param buffer: List of buffered readings.
+    :return: None
     """
     with open(BUFFER_PATH, "w") as f:
         json.dump(buffer, f)
 
-# ==== SAVE TO CSV (long-term storage) ====
+
+# ==== CSV WRITE ====
 def write_to_csv(data_list):
     """
-    Write a list of readings to the CSV file. Each reading is a list of [timestamp, pm1.0, pm2.5, pm10.0].
-    :param data_list: List of readings to write
-    :return: none
+    Appends a list of readings to the CSV file.
+    :param data_list: List of readings to write.
+    :return: None
     """
-
-    # Ensure CSV file exists, if not create and add header
     with open(CSV_PATH, "a", newline="") as f:
         writer = csv.writer(f)
-        # ROWS: Data
         writer.writerows(data_list)
     os.sync()
-    # Logging
     print(f"Wrote {len(data_list)} readings to {CSV_PATH}")
 
 
-# ==== MQTT PUBLISHING ====
+# ==== MQTT HELPERS ====
 def mqtt_client():
     """
-    Initialize and return an MQTT client with Last Will set.
-    :return:
+    Initializes and returns an MQTT client with LWT configured.
+    :return: MQTT client instance.
     """
     c = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
-    # Last Will tells HA that we went offline if the process dies
     c.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
     return c
 
-
 def mqtt_connect(c: mqtt.Client):
     """
-    Connect to the MQTT broker with retries and exponential backoff.
-    :param c: mqtt.Client
-    :return:
+    Connects to the MQTT broker with exponential backoff on failure.
+    :param c: MQTT client instance.
+    :return:  Connected MQTT client instance.
     """
     backoff = 2
     while True:
         try:
             c.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
             c.loop_start()
-            # we’re online now
             c.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
             print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
             return c
@@ -321,26 +271,21 @@ def mqtt_connect(c: mqtt.Client):
             time.sleep(backoff)
             backoff = min(backoff * 2, 60)
 
-
 def mqtt_publish_reading(c: mqtt.Client, payload: dict):
     """
-    Publish the sensor reading to both a streaming topic and a retained snapshot topic.
-    :param c: mqtt.Client
-    :param payload: dict with sensor data
-    :return:
+    Publishes the sensor reading to MQTT topics.
+    :param c: MQTT client instance.
+    :param payload: Dictionary containing sensor data.
+    :return: None
     """
-    # 1) streaming topic (not retained)
     c.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False)
-    # 2) snapshot topic (retained) so HA always has the latest
     c.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True)
-
 
 def mqtt_publish_discovery(c: mqtt.Client):
     """
-    Publish HA discovery configs so entities show up automatically.
-    We bind them to the retained 'latest' snapshot.
-    :param c: mqtt.Client
-    :return: none
+    Publishes Home Assistant MQTT discovery configuration for the sensors.
+    :param c: MQTT client instance.
+    :return: None
     """
     disc_base = f"homeassistant/sensor/{DEVICE_ID}"
     device = {
@@ -349,9 +294,7 @@ def mqtt_publish_discovery(c: mqtt.Client):
         "model": "Pi Zero 2 W",
         "manufacturer": "Custom",
     }
-
     sensors = [
-        # (key, name, unit, value_json_field)
         ("pm25", "PM2.5", "µg/m³", "pm25_standard"),
         ("pm10", "PM10", "µg/m³", "pm10_standard"),
         ("pm100", "PM100", "µg/m³", "pm100_standard"),
@@ -359,7 +302,6 @@ def mqtt_publish_discovery(c: mqtt.Client):
         ("humid", "Humidity", "%", "humidity_percent"),
         ("cput", "CPU Temp", "°C", "cpu_temp_c"),
     ]
-
     for key, name, unit, field in sensors:
         cfg_topic = f"{disc_base}/{key}/config"
         cfg = {
@@ -377,7 +319,7 @@ def mqtt_publish_discovery(c: mqtt.Client):
     print("[MQTT] Published HA discovery")
 
 
-""" ==== MAIN ==== """
+# ==== MAIN ====
 try:
     wake_sensor()
     reading = read_sensor()
@@ -388,18 +330,19 @@ try:
         print(f"No reading. Skipping write.\nTime: {timestamp}")
         with open(CSV_PATH_FAILED_READS, "a", newline="") as f:
             writer = csv.writer(f)
-            writer.writerows(timestamp)
-        print(f"Wrote failed reading timestamp ({timestamp}) to {CSV_PATH_FAILED_READS}")
+            writer.writerow([timestamp, "failed"])  # fixed
         os.sync()
-        exit()
+        raise SystemExit(0)
 
     print(f"Sensor reading: {reading}")
 
-    # ==== MQTT PUBLISH ====
+    # MQTT: connect → publish discovery (once) → publish reading
     client = mqtt_connect(mqtt_client())
+    mqtt_publish_discovery(client)  # call this so HA auto-creates entities
+
     payload = {
         "timestamp": reading[0],
-        "cpu_temp_c": reading[1],  # you logged °C for CPU (correct from cpu_temp_c)
+        "cpu_temp_c": reading[1],
         "pm10_standard": reading[2],
         "pm25_standard": reading[3],
         "pm100_standard": reading[4],
@@ -409,13 +352,13 @@ try:
     }
     mqtt_publish_reading(client, payload)
 
+    # Buffer → CSV batch
     buffer = load_buffer()
     buffer.append(reading)
-    print(f"\nBUFFER:")
-    for _,value in enumerate(buffer):
-        print(f"{_}.", value)
-    # blink for saving buffer
     blink_builtin_led(2)
+    print("\nBUFFER:")
+    for i, value in enumerate(buffer):
+        print(f"{i}. {value}")
 
     if len(buffer) >= WRITE_THRESHOLD:
         write_to_csv(buffer)
@@ -424,16 +367,20 @@ try:
 
     save_buffer(buffer)
 
-    # Debugging
+    # Debug
     if buffer:
-        if len(buffer) < 5:
-            # print(f"Last reading: {buffer[-1]}")
-            print(f"\nCURRENT THRESHOLD: {len(buffer)}/6")
-        elif len(buffer) == 5:
-            print(f"\nCURRENT THRESHOLD: {len(buffer)}/6")
-            print(f"\nPreparing write data to .csv next read...")
-        else:
-            print("BUFFER is empty")
+        if len(buffer) < WRITE_THRESHOLD:
+            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
+        elif len(buffer) == WRITE_THRESHOLD - 1:
+            print(f"\nCURRENT THRESHOLD: {len(buffer)}/{WRITE_THRESHOLD}")
+            print("\nPreparing write data to .csv next read...")
+    else:
+        print("BUFFER is empty")
 
 except Exception as e:
     print(f"[ERROR] Unexpected error occurred: {e}")
+
+"""
+TODO
+- add most recent timestamp reading as an entity in HA
+"""
