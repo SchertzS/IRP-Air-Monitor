@@ -90,7 +90,6 @@ def cpu_temp_c():
     with open("/sys/class/thermal/thermal_zone0/temp") as f:
         return int(f.read().strip()) / 1000.0
 
-
 # ==== SENSOR POWER CONTROL ====
 def wake_sensor():
     """
@@ -140,7 +139,6 @@ def flash_builtin_led(times=4, duration=0.1):
         with open(LED_PATH, "w") as led:
             led.write("0")
         time.sleep(duration)
-
 
 # ==== SENSOR READ ====
 def read_sensor(retries=10, delay=2):
@@ -202,7 +200,6 @@ def read_sensor(retries=10, delay=2):
             print(".\n.")
     return None
 
-
 # ==== BUFFER MANAGEMENT ====
 def load_buffer():
     """
@@ -227,7 +224,6 @@ def save_buffer(buffer):
     with open(BUFFER_PATH, "w") as f:
         json.dump(buffer, f)
 
-
 # ==== CSV WRITE ====
 def write_to_csv(data_list):
     """
@@ -240,7 +236,6 @@ def write_to_csv(data_list):
         writer.writerows(data_list)
     os.sync()
     print(f"Wrote {len(data_list)} readings to {CSV_PATH}")
-
 
 # ==== MQTT HELPERS ====
 def mqtt_client():
@@ -317,7 +312,6 @@ def mqtt_publish_discovery(c: mqtt.Client):
         }
         c.publish(cfg_topic, json.dumps(cfg), qos=1, retain=True)
     print("[MQTT] Published HA discovery")
-
 
 # ==== MAIN ====
 try:
