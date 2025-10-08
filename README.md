@@ -14,52 +14,59 @@
 - [7. Configure Sudden Power Loss Handling](#7-configure-sudden-power-loss-handling)
 - [8. Edit `config.txt`](#8-edit-configtxt)
 - [9. Update Script Paths](#9-update-script-paths)
-- [10. Install WiringPi](#10-install-wiringpi)
+- [10. MQTT Broker Configuration](#10-mqtt-broker-configuration)
 - [11. RTC Setup Steps (DS3231 on Raspberry Pi)](#11-rtc-setup-steps-ds3231-on-raspberry-pi)
-- [12. DHT11 Sensor Setup](#13-dht11-sensor-setup)
-- [13. Wifi hotspot](#12-wifi-hotspot)
-- [14. Optional Power Savers](#13-optional-power-savers)
+- [12. DHT11 Sensor Setup](#12-dht11-sensor-setup)
+- [13. Wifi hotspot](#13-wifi-hotspot)
+- [14. Optional Power Savers](#14-optional-power-savers)
 - [Final Checks](#final-checks)
 - [Diagrams and Photos](#diagrams-and-photos)
 ---
 
+# Project Directory Structure
+
+```
+Project/
+│
+├── Scripts/                                # Scripts Directory
+│   ├── sensor_management/                  # Sensor Subdirectory
+│   │     └── read_sensor.py                #  
+│   │     └── wake_sensor.py                #  
+│   │     └── sleep_sensor.py               #  
+│   │     └── cpu_temp_c.py                 #  
+│   │
+│   ├── mqtt_management/                    # MQTT Subdirectory
+│   │     └── mqtt_client.py                #
+│   │     └── mqtt_connect.py               #
+│   │     └── mqtt_publish_discovery.py     #
+│   │     └── mqtt_publish_reading.py       #
+│   │
+│   ├── buffer_management/                  # Buffer Subdirectory
+│   │     └── load_buffer.py                #
+│   │     └── save_buffer.py                #
+│   │
+│   ├── LED_management/                     # LED Subdirectory
+│   │     └── blink_builtin_led.py          #
+│   │     └── flash_builtin_led.py          #
+│   │
+│   ├── data_management/                    # Data Subdirectory
+│   │     └── write_to_csv.py               #
+│   │
+│   ├── log.py                              # Main Cron Job Script
+│   └── main.py                             # Main Cron Job Script
 ```
 
-serial connect 
-     |
-     |
-     V
-wake_sensor()
-     |
-     |
-     V
-read_sensor() 
-     |
-     |
-     V                                        if buffer !full
-sleep_sensor() ---> load_buffer() ------------------------------->------->  save_buffer() 
-                                     |                          |                            |
-                      if buffer full |                          |                            |  
-                                     -------> write_to_csv()----^                            |
-                                                                                             | 
-                                                                                             | 
-      ----------------------------------------------------------------------------------- < -
-     |
-     |
-     V
-mqtt_connect() ---> mqtt_publish_discovery ---> mqtt_publish_reading
-     
-```
+
 # Raspberry Pi Device Setup
 
-## 1. Flash Operating System
+# 1. Flash Operating System
 
 * Use the **Raspberry Pi Imager** to flash the OS onto the SD card.
   *This installs the base system so the Pi can boot.*
 
 ---
 
-## 2. Configure Interfaces
+# 2. Configure Interfaces
 
 Run:
 
@@ -78,7 +85,7 @@ Enable:
 
 ---
 
-## 3. Update the Device
+# 3. Update the Device
 
 Make sure you have a **stable internet connection** and run:
 
@@ -108,14 +115,61 @@ sudo rm /var/cache/apt/archives/lock
 
 ---
 
-## 4. Install WiringPi
+# 4. Install WiringPi
 
 * Install WiringPi (if not already bundled).
   *Provides GPIO utilities to test and manage pins.*
 
+```bash
+cd ~
+git clone https://github.com/WiringPi/WiringPi.git
+```
+
+### **Build and Install WiringPi**
+
+```bash
+cd WiringPi
+./build
+```
+
+### **Verify Installation**
+
+After installation, check if `gpio` is now available:
+
+```bash
+gpio -v
+```
+
+**Expected Output (If WiringPi Installed Correctly)**:
+
+```
+gpio version: 2.XX (version may vary)
+```
+
 ---
 
-## 5. Setup Python Virtual Environment
+### **Test GPIO 3 (Button)**
+
+Now check if  **shutdown button is detected**:
+
+```bash
+gpio -g mode 11 in
+watch -n 0.5 gpio -g read 11
+```
+
+**Expected Behavior**
+
+- **When button is unpressed:** Output should be `1`.
+- **When button is pressed:** Output should change to `0`.
+
+If the button does not change state, **double-check the wiring**:
+
+- One leg **to GPIO 11 (Pin 5)**.
+- One leg **to GND (Pin 6)**.
+
+---
+
+# 5. Setup Python Virtual Environment
 
 Create and activate:
 
@@ -137,7 +191,7 @@ pip install adafruit-circuitpython-pm25 pyserial
 
 ---
 
-## 6. Setup Cron Job
+# 6. Setup Cron Job
 
 Open cron for root:
 
@@ -158,7 +212,7 @@ Add:
 
 ---
 
-## 7. Configure Sudden Power Loss Handling
+# 7. Configure Sudden Power Loss Handling
 
 Check partitions:
 
@@ -184,7 +238,7 @@ PARTUUID=XXXXXXXXX / ext4 defaults,noatime 0 1
 
 ---
 
-## 8. Edit `config.txt`
+# 8. Edit `config.txt`
 
 Open:
 
@@ -219,7 +273,7 @@ enable_uart=1
 
 ---
 
-## 9. Update Script Paths
+# 9. Update Script Paths
 
 In `pm25_cron_job.py`, ensure paths match username:
 
@@ -231,62 +285,51 @@ In `pm25_cron_job.py`, ensure paths match username:
 * **Buffer JSON** → Temporary storage for sensor readings.
 * **CSV log** → Long-term storage for analysis.
 
+
 ---
 
+# 10. MQTT Broker Configuration
 
-
-## **10. Install WiringPi**
+The purpose of installing an MQTT broker (like Mosquitto) on the Raspberry Pi
+Zero node is to facilitate efficient and lightweight communication between the node and the Home Assistant server. MQTT
+is ideal for IoT
+applications due to its low bandwidth usage and ability to handle intermittent
+connections, making it perfect for real-time data transmission in a sensor network.
 
 <details>
-    <summary>Install WiringPi (power button)</summary>
+    <summary>MQTT Broker Configuration</summary>
 
-The purpose of installing WiringPi is to enable GPIO pin control and management on the Raspberry Pi.
 
-### **Download WiringPi**
+Shell commands ran for configuration:
+
 ```bash
-cd ~
-git clone https://github.com/WiringPi/WiringPi.git
+sudo apt install -y mosquitto mosquitto-clients
+sudo systemctl enable --now mosquitto
+sudo mosquitto_passwd -c /etc/mosquitto/passwd mqttuser # set password
+printf "allow_anonymous false\npassword_file /etc/mosquitto/passwd\nlistener 1883 0.0.0.0\n" | \
+  sudo tee /etc/mosquitto/conf.d/local.conf >/dev/null
 ```
 
-### **Build and Install WiringPi**
-```bash
-cd WiringPi
-./build
-```
+did four key things:
 
-### **Verify Installation**
-After installation, check if `gpio` is now available:
-```bash
-gpio -v
-```
- **Expected Output (If WiringPi Installed Correctly)**:
-```
-gpio version: 2.XX (version may vary)
-```
+1. Installed the broker (`mosquitto`) and test clients (`mosquitto_pub`, `mosquitto_sub`).
+2. Enabled the broker service at boot (`systemctl enable`).
+3. Created a **password file** so only authenticated clients can connect.
+4. Created a small config file to:
 
----
+    * disable anonymous access,
+    * point to that password file,
+    * and listen on **port 1883** on all interfaces (`0.0.0.0`).
 
-### **Test GPIO 3 (Button)**
-Now check if your **shutdown button is detected**:
-```bash
-gpio -g mode 11 in
-watch -n 0.5 gpio -g read 11
-```
-**Expected Behavior**
-- **When button is unpressed:** Output should be `1`.
-- **When button is pressed:** Output should change to `0`.
-
-If the button does not change state, **double-check the wiring**:
-- One leg **to GPIO 11 (Pin 5)**.
-- One leg **to GND (Pin 6)**.
-
+So now the Pi Zero became a secure **MQTT server** reachable by IP `192.168.1.xxx:1883`.
 </details>
 
-
 ---
 
+# 11. RTC Setup Steps (DS3231 on Raspberry Pi)
 
-## 11. RTC Setup Steps (DS3231 on Raspberry Pi)
+The purpose of installing a Real-Time Clock (RTC)
+module is to maintain accurate timekeeping on the Raspberry Pi,
 
 <br /> 
 
@@ -468,33 +511,7 @@ sudo systemctl status rc-local
 
 ---
 
-
-# 12. Wifi hotspot
-
-<details>
-    <summary> Wifi Hotspot</summary>
-
-The purpose of installing a wifi hotspot is to allow the device to be accessed remotely when no other network is
-available.
-This is useful for field deployments where you may want to connect to the device directly from a client.
-
-### Step 1: Find wifi device
-`nmcli device`
-
-### Step 2: Create hotsot network
-`sudo nmcli device wifi hotspot ssid <hotspot name> password <hotspot password> ifname wlan0`
-
-### Step 3: Configure hotspot network
-`nmcli connection show <hotspot UUID>`
-
-### Step 4: auto connect to hotspot on boot
-`sudo nmcli connection modify <hotspot UUID> connection.autoconnect yes connection.autoconnect-priority 100`
-
-</details>
-
----
-
-# 13. DHT11 Sensor Setup
+# 12. DHT11 Sensor Setup
 
 The purpose of installing a DHT11 sensor is to measure temperature and humidity alongside the PM2.5 readings.
 This provides additional context for air quality data, as temperature and humidity can influence particulate matter
@@ -516,6 +533,32 @@ levels.
 ```bash
 pip install Adafruit_DHT
 ```
+
+</details>
+
+# 13. Wifi hotspot
+
+The purpose of installing a wifi hotspot is to allow the device
+to be accessed in remote areas via LAN when no other network is available.
+
+<details>
+    <summary> Wifi Hotspot</summary>
+
+The purpose of installing a wifi hotspot is to allow the device to be accessed remotely when no other network is
+available.
+This is useful for field deployments where you may want to connect to the device directly from a client.
+
+### Step 1: Find wifi device
+`nmcli device`
+
+### Step 2: Create hotsot network
+`sudo nmcli device wifi hotspot ssid <hotspot name> password <hotspot password> ifname wlan0`
+
+### Step 3: Configure hotspot network
+`nmcli connection show <hotspot UUID>`
+
+### Step 4: auto connect to hotspot on boot
+`sudo nmcli connection modify <hotspot UUID> connection.autoconnect yes connection.autoconnect-priority 100`
 
 </details>
 
