@@ -43,6 +43,8 @@ import serial
 from adafruit_pm25.uart import PM25_UART
 
 # ==== MQTT CONFIG (point to Pi 5 / HA broker) ====
+MQTT_USER = os.getenv("MQTT_USER", "mqtt_user")
+MQTT_PASS = os.getenv("MQTT_PASS", "mqtt_pass")
 MQTT_HOST = os.getenv("MQTT_HOST", "pi5.local")  # or static IP
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 DEVICE_ID = os.getenv("DEVICE_ID", "device_id")  # e.g., aqnode-zero2w-01
@@ -80,6 +82,16 @@ try:
 except serial.SerialException as e:
     print(f"[ERROR] Failed to open UART: {e}")
     raise SystemExit(1)
+
+
+# ==== ISO ====
+def iso_now():
+    # RFC3339-like local time with offset, e.g., 2025-10-07T21:03:15-07:00
+    lt = time.localtime()
+    tz_off = time.strftime("%z", lt)
+    tz_off = tz_off[:3] + ":" + tz_off[3:] if tz_off and len(tz_off) == 5 else tz_off
+    return time.strftime("%Y-%m-%dT%H:%M:%S", lt) + (tz_off or "Z")
+
 
 # ==== TEMPERATURE MONITORING ====
 def cpu_temp_c():
@@ -237,6 +249,22 @@ def write_to_csv(data_list):
     os.sync()
     print(f"Wrote {len(data_list)} readings to {CSV_PATH}")
 
+
+def load_failed_count():
+    try:
+        with open(CSV_PATH_FAILED_READS, "r") as f:
+            return json.load(f).get("count", 0)
+    except Exception:
+        return 0
+
+
+def save_failed_count(n):
+    try:
+        with open(CSV_PATH_FAILED_READS, "w") as f:
+            json.dump({"count": n}, f)
+    except Exception:
+        pass
+
 # ==== MQTT HELPERS ====
 def mqtt_client():
     """
@@ -291,28 +319,38 @@ def mqtt_publish_discovery(c: mqtt.Client):
         "model": "Pi Zero 2 W",
         "manufacturer": "Custom",
     }
+
     sensors = [
-        ("pm25", "PM2.5", "µg/m³", "pm25_standard"),
-        ("pm10", "PM10", "µg/m³", "pm10_standard"),
-        ("pm100", "PM100", "µg/m³", "pm100_standard"),
-        ("temp", "Ambient Temp", "°F", "temperature_f"),
-        ("humid", "Humidity", "%", "humidity_percent"),
-        ("cput", "CPU Temp", "°C", "cpu_temp_c"),
+        ("pm25", "PM2.5", "µg/m³", "pm25_standard", None, "measurement"),
+        ("pm10", "PM10", "µg/m³", "pm10_standard", None, "measurement"),
+        ("pm100", "PM100", "µg/m³", "pm100_standard", None, "measurement"),
+        ("temp", "Ambient Temp", "°F", "temperature_f", "temperature", "measurement"),
+        ("humid", "Humidity", "%", "humidity_percent", "humidity", "measurement"),
+        ("cput", "CPU Temp", "°C", "cpu_temp_c", "temperature", "measurement"),
+        # NEW: timestamp of the most recent reading
+        ("lastseen", "Last Seen", None, "ts_iso", "timestamp", None),
+        # NEW: diagnostics
+        ("bufdepth", "Buffer Depth", None, "buffer_depth", "enum", None),
+        ("failcount", "Failed Reads", None, "failed_reads_total", None, "total_increasing"),
     ]
-    for key, name, unit, field in sensors:
-        cfg_topic = f"{disc_base}/{key}/config"
+
+    for key, name, unit, field, device_class, state_class in sensors:
         cfg = {
             "name": name,
             "state_topic": f"{BASE_TOPIC}/latest",
-            "unit_of_measurement": unit,
             "value_template": f"{{{{ value_json.{field} }}}}",
             "unique_id": f"{DEVICE_ID}_{key}",
             "device": device,
             "availability_topic": f"{BASE_TOPIC}/status",
             "payload_available": "online",
             "payload_not_available": "offline",
+            "retain": True,
         }
-        c.publish(cfg_topic, json.dumps(cfg), qos=1, retain=True)
+        if unit: cfg["unit_of_measurement"] = unit
+        if device_class: cfg["device_class"] = device_class
+        if state_class: cfg["state_class"] = state_class
+        c.publish(f"{disc_base}/{key}/config", json.dumps(cfg), qos=1, retain=True)
+
     print("[MQTT] Published HA discovery")
 
 # ==== MAIN ====
@@ -323,11 +361,16 @@ try:
 
     if not reading:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        count = load_failed_count() + 1
+
         print(f"No reading. Skipping write.\nTime: {timestamp}")
         with open(CSV_PATH_FAILED_READS, "a", newline="") as f:
             writer = csv.writer(f)
             writer.writerow([timestamp, "failed"])  # fixed
+
         os.sync()
+        save_failed_count(count)
+
         raise SystemExit(0)
 
     print(f"Sensor reading: {reading}")
@@ -358,18 +401,25 @@ try:
     else:
         print("BUFFER is empty")
 
+    buffer_depth = len(buffer)
+    failed_reads_total = load_failed_count()
+    print(f"\nFAILED READS TOTAL: {failed_reads_total}")
+
     # MQTT: connect → publish discovery (once) → publish reading
     client = mqtt_connect(mqtt_client())
     mqtt_publish_discovery(client)  # call this so HA auto-creates entities
 
     payload = {
-        "timestamp": reading[0],
+        "timestamp": reading[0],  # human-readable NEW
+        "ts_iso": iso_now(),  # for HA timestamp entity NEW
         "cpu_temp_c": reading[1],
         "pm10_standard": reading[2],
         "pm25_standard": reading[3],
         "pm100_standard": reading[4],
         "temperature_f": reading[5],
         "humidity_percent": reading[6],
+        "buffer_depth": buffer_depth,  # NEW
+        "failed_reads_total": failed_reads_total,  # NEW
         "host": socket.gethostname(),
     }
     mqtt_publish_reading(client, payload)
@@ -380,7 +430,5 @@ except Exception as e:
 
 """
 TODO
-- add most recent timestamp reading as an entity in HA
-                        - or -
-- add overall logs as an entity in HA
+
 """
