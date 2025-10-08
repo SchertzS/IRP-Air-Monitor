@@ -244,7 +244,9 @@ def mqtt_client():
     :return: MQTT client instance.
     """
     c = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
-    c.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
+    c.username_pw_set(MQTT_USER, MQTT_PASS)
+
+    # c.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
     return c
 
 def mqtt_connect(c: mqtt.Client):
