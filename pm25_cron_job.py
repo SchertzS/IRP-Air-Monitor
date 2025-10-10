@@ -249,14 +249,12 @@ def write_to_csv(data_list):
     os.sync()
     print(f"Wrote {len(data_list)} readings to {CSV_PATH}")
 
-
 def load_failed_count():
     try:
         with open(CSV_PATH_FAILED_READS, "r") as f:
             return json.load(f).get("count", 0)
     except Exception:
         return 0
-
 
 def save_failed_count(n):
     try:
@@ -271,7 +269,10 @@ def mqtt_client():
     Initializes and returns an MQTT client with LWT configured.
     :return: MQTT client instance.
     """
-    c = mqtt.Client(client_id=f"{DEVICE_ID}-pub", protocol=mqtt.MQTTv311)
+    c = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2,
+        client_id=f"{DEVICE_ID}-pub",
+        protocol=mqtt.MQTTv311)
     c.username_pw_set(MQTT_USER, MQTT_PASS)
 
     # c.will_set(f"{BASE_TOPIC}/status", payload="offline", qos=1, retain=True)
@@ -288,7 +289,8 @@ def mqtt_connect(c: mqtt.Client):
         try:
             c.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
             c.loop_start()
-            c.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
+            info = c.publish(f"{BASE_TOPIC}/status", "online", qos=1, retain=True)
+            info.wait_for_publish()
             print(f"[MQTT] Connected to {MQTT_HOST}:{MQTT_PORT}")
             return c
         except Exception as e:
@@ -303,8 +305,17 @@ def mqtt_publish_reading(c: mqtt.Client, payload: dict):
     :param payload: Dictionary containing sensor data.
     :return: None
     """
-    c.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False)
-    c.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True)
+    infos = [
+        c.publish(f"{BASE_TOPIC}/reading", json.dumps(payload), qos=1, retain=False),
+        c.publish(f"{BASE_TOPIC}/latest", json.dumps(payload), qos=1, retain=True),
+    ]
+
+    for info in infos:
+        info.wait_for_publish()
+
+    time.sleep(0.5)  # short 0.5 grace tic before closing loop & disconnecting
+    c.loop_stop()
+    c.disconnect()
 
 def mqtt_publish_discovery(c: mqtt.Client):
     """
@@ -344,7 +355,7 @@ def mqtt_publish_discovery(c: mqtt.Client):
             "availability_topic": f"{BASE_TOPIC}/status",
             "payload_available": "online",
             "payload_not_available": "offline",
-            "retain": True,
+            "expire_after": 1200,
         }
         if unit: cfg["unit_of_measurement"] = unit
         if device_class: cfg["device_class"] = device_class
